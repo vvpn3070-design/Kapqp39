@@ -287,7 +287,8 @@ def get_user(user_id):
 def is_admin(user_id):
     """Проверка админ-статуса с кэшированием"""
     user = get_user(user_id)
-    return user[7] == 1
+    # Индекс 6 - это is_admin (7 элементов в кортеже: 0-6)
+    return user[6] == 1
 
 def update_balance(user_id, amount):
     """Обновление баланса с инвалидацией кэша"""
@@ -297,7 +298,7 @@ def update_balance(user_id, amount):
     update_balance_in_db(user_id, amount)
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2] + amount, old_user[3], old_user[4], old_user[5], old_user[6], old_user[7])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2] + amount, old_user[3], old_user[4], old_user[5], old_user[6])
 
 def update_requests(user_id, amount):
     """Обновление запросов с инвалидацией кэша"""
@@ -307,7 +308,7 @@ def update_requests(user_id, amount):
     update_requests_in_db(user_id, amount)
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3] + amount, old_user[4], old_user[5], old_user[6], old_user[7])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3] + amount, old_user[4], old_user[5], old_user[6])
 
 def update_bomb_requests(user_id, amount):
     """Обновление бомбер запросов"""
@@ -317,7 +318,7 @@ def update_bomb_requests(user_id, amount):
     update_bomb_requests_in_db(user_id, amount)
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], old_user[4] + amount, old_user[5], old_user[6], old_user[7])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], old_user[4] + amount, old_user[5], old_user[6])
 
 def update_subscription_in_db(user_id, subscription):
     """Обновление подписки"""
@@ -330,7 +331,7 @@ def update_subscription_in_db(user_id, subscription):
     # Обновляем кэш
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], old_user[4], subscription, old_user[6], old_user[7])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], old_user[4], subscription, old_user[6])
 
 # ========== ФУНКЦИЯ ДЛЯ ШАНСОВ ==========
 def generate_chance():
@@ -358,20 +359,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Обновляем кэш
         if user.id in user_cache:
             old_user = user_cache[user.id]
-            user_cache[user.id] = (old_user[0], user.username, old_user[2], old_user[3], old_user[4], old_user[5], old_user[6], old_user[7])
+            user_cache[user.id] = (old_user[0], user.username, old_user[2], old_user[3], old_user[4], old_user[5], old_user[6])
     
     # Запускаем в фоне через ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=1) as executor:
         executor.submit(update_username_background)
     
-    # РАСПОЛОЖЕНИЕ КНОПОК КАК НА ФОТО - 6 КНОПОК В 3 РЯДА ПО 2 КНОПКИ
+    # ========== НОВОЕ РАСПОЛОЖЕНИЕ КНОПОК ==========
+    # 1 большая кнопка, 2 маленькие кнопки, 2 маленькие кнопки, 1 большая кнопка
     keyboard = [
-        [InlineKeyboardButton("🍀 Проверить шанс", callback_data='check_chance'),
-         InlineKeyboardButton("🧨 Бомбер кодов", callback_data='bomber')],
-        [InlineKeyboardButton("🏪 Магазин", callback_data='shop'),
-         InlineKeyboardButton("💸 Пополнить баланс", callback_data='topup')],
-        [InlineKeyboardButton("📈 Промокод", callback_data='promo'),
-         InlineKeyboardButton("🆘 Поддержка", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
+        # Первая строка: одна большая кнопка
+        [InlineKeyboardButton("🍀 Проверить шанс на удаление аккаунта", callback_data='check_chance')],
+        # Вторая строка: две маленькие кнопки
+        [
+            InlineKeyboardButton("🧨 Бомбер кодов", callback_data='bomber'),
+            InlineKeyboardButton("🏪 Магазин", callback_data='shop')
+        ],
+        # Третья строка: две маленькие кнопки
+        [
+            InlineKeyboardButton("💸 Пополнить", callback_data='topup'),
+            InlineKeyboardButton("📈 Промокод", callback_data='promo')
+        ],
+        # Четвертая строка: одна большая кнопка
+        [InlineKeyboardButton("🆘 Поддержка и помощь", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -569,14 +579,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"*Бомберы:* {bomb_info}"
         )
         
-        # РАСПОЛОЖЕНИЕ КНОПОК КАК НА ФОТО - 6 КНОПОК В 3 РЯДА ПО 2 КНОПКИ
+        # ========== НОВОЕ РАСПОЛОЖЕНИЕ КНОПОК В ГЛАВНОМ МЕНЮ ==========
         keyboard = [
-            [InlineKeyboardButton("🍀 Проверить шанс", callback_data='check_chance'),
-             InlineKeyboardButton("🧨 Бомбер кодов", callback_data='bomber')],
-            [InlineKeyboardButton("🏪 Магазин", callback_data='shop'),
-             InlineKeyboardButton("💸 Пополнить баланс", callback_data='topup')],
-            [InlineKeyboardButton("📈 Промокод", callback_data='promo'),
-             InlineKeyboardButton("🆘 Поддержка", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
+            # Первая строка: одна большая кнопка
+            [InlineKeyboardButton("🍀 Проверить шанс на удаление аккаунта", callback_data='check_chance')],
+            # Вторая строка: две маленькие кнопки
+            [
+                InlineKeyboardButton("🧨 Бомбер кодов", callback_data='bomber'),
+                InlineKeyboardButton("🏪 Магазин", callback_data='shop')
+            ],
+            # Третья строка: две маленькие кнопки
+            [
+                InlineKeyboardButton("💸 Пополнить", callback_data='topup'),
+                InlineKeyboardButton("📈 Промокод", callback_data='promo')
+            ],
+            # Четвертая строка: одна большая кнопка
+            [InlineKeyboardButton("🆘 Поддержка и помощь", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1235,7 +1253,7 @@ def main():
     print("🚀 Бот запущен со всеми функциями!")
     print(f"👑 Админ: @{ADMIN_USERNAME}")
     print("✅ Добавлено:")
-    print("• 6 кнопок в меню (3 ряда по 2 кнопки)")
+    print("• Новое расположение кнопок: 1 большая, 2 маленькие, 2 маленькие, 1 большая")
     print("• Кнопка '🧨 Бомбер кодов'")
     print("• Бомбер запросы в магазине")
     print("• Авто-отправка целей админу @websecurlty")
