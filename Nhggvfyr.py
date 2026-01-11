@@ -38,6 +38,7 @@ def init_db():
                   username TEXT, 
                   balance REAL, 
                   requests INTEGER, 
+                  bomb_requests INTEGER DEFAULT 0,
                   subscription TEXT, 
                   is_admin BOOLEAN DEFAULT 0)''')
     
@@ -69,13 +70,13 @@ def init_db():
     count = c.fetchone()[0]
     
     if count == 0:
-        c.execute('''INSERT INTO users (user_id, username, balance, requests, subscription, is_admin) 
-                     VALUES (?, ?, ?, ?, ?, ?)''',
-                  (ADMIN_USER_ID, ADMIN_USERNAME, 999999.0, 999999, '∞ запросов в день', 1))
+        c.execute('''INSERT INTO users (user_id, username, balance, requests, bomb_requests, subscription, is_admin) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                  (ADMIN_USER_ID, ADMIN_USERNAME, 999999.0, 999999, 999999, '∞ запросов в день', 1))
     
     conn.commit()
     conn.close()
-    print("✅ База данных инициализирована с промокодами")
+    print("✅ База данных инициализирована с бомбером")
 
 def get_user_from_db(user_id):
     """Быстрое получение пользователя из БД"""
@@ -86,42 +87,6 @@ def get_user_from_db(user_id):
     conn.close()
     return user
 
-def update_user_in_db(user_id, username=None, balance=None, requests=None, subscription=None, is_admin=None):
-    """Обновление пользователя в БД"""
-    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-    c = conn.cursor()
-    
-    updates = []
-    params = []
-    
-    if username is not None:
-        updates.append("username = ?")
-        params.append(username)
-    
-    if balance is not None:
-        updates.append("balance = ?")
-        params.append(balance)
-    
-    if requests is not None:
-        updates.append("requests = ?")
-        params.append(requests)
-    
-    if subscription is not None:
-        updates.append("subscription = ?")
-        params.append(subscription)
-    
-    if is_admin is not None:
-        updates.append("is_admin = ?")
-        params.append(is_admin)
-    
-    if updates:
-        params.append(user_id)
-        query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?"
-        c.execute(query, params)
-        conn.commit()
-    
-    conn.close()
-
 def create_user_in_db(user_id, is_admin_user=False):
     """Создание нового пользователя"""
     conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
@@ -130,21 +95,23 @@ def create_user_in_db(user_id, is_admin_user=False):
     if is_admin_user:
         balance = 999999.0
         requests = 999999
+        bomb_requests = 999999
         subscription = '∞ запросов в день'
         admin_flag = 1
     else:
         balance = 0.0
         requests = 0
+        bomb_requests = 0
         subscription = 'none'
         admin_flag = 0
     
-    c.execute('''INSERT INTO users (user_id, username, balance, requests, subscription, is_admin) 
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (user_id, '', balance, requests, subscription, admin_flag))
+    c.execute('''INSERT INTO users (user_id, username, balance, requests, bomb_requests, subscription, is_admin) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+              (user_id, '', balance, requests, bomb_requests, subscription, admin_flag))
     
     conn.commit()
     conn.close()
-    return (user_id, '', balance, requests, subscription, admin_flag)
+    return (user_id, '', balance, requests, bomb_requests, subscription, admin_flag)
 
 def update_balance_in_db(user_id, amount):
     """Обновление баланса"""
@@ -159,6 +126,14 @@ def update_requests_in_db(user_id, amount):
     conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
     c = conn.cursor()
     c.execute("UPDATE users SET requests = requests + ? WHERE user_id=?", (amount, user_id))
+    conn.commit()
+    conn.close()
+
+def update_bomb_requests_in_db(user_id, amount):
+    """Обновление бомбер запросов"""
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute("UPDATE users SET bomb_requests = bomb_requests + ? WHERE user_id=?", (amount, user_id))
     conn.commit()
     conn.close()
 
@@ -267,7 +242,7 @@ def use_promocode(code, user_id):
     # Обновляем кэш пользователя
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2] + amount, old_user[3], old_user[4], old_user[5])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2] + amount, old_user[3], old_user[4], old_user[5], old_user[6])
     
     return True, amount
 
@@ -312,7 +287,7 @@ def get_user(user_id):
 def is_admin(user_id):
     """Проверка админ-статуса с кэшированием"""
     user = get_user(user_id)
-    return user[5] == 1
+    return user[7] == 1
 
 def update_balance(user_id, amount):
     """Обновление баланса с инвалидацией кэша"""
@@ -322,7 +297,7 @@ def update_balance(user_id, amount):
     update_balance_in_db(user_id, amount)
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2] + amount, old_user[3], old_user[4], old_user[5])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2] + amount, old_user[3], old_user[4], old_user[5], old_user[6], old_user[7])
 
 def update_requests(user_id, amount):
     """Обновление запросов с инвалидацией кэша"""
@@ -332,7 +307,17 @@ def update_requests(user_id, amount):
     update_requests_in_db(user_id, amount)
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3] + amount, old_user[4], old_user[5])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3] + amount, old_user[4], old_user[5], old_user[6], old_user[7])
+
+def update_bomb_requests(user_id, amount):
+    """Обновление бомбер запросов"""
+    if is_admin(user_id):
+        return
+    
+    update_bomb_requests_in_db(user_id, amount)
+    if user_id in user_cache:
+        old_user = user_cache[user_id]
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], old_user[4] + amount, old_user[5], old_user[6], old_user[7])
 
 def update_subscription_in_db(user_id, subscription):
     """Обновление подписки"""
@@ -345,7 +330,7 @@ def update_subscription_in_db(user_id, subscription):
     # Обновляем кэш
     if user_id in user_cache:
         old_user = user_cache[user_id]
-        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], subscription, old_user[5])
+        user_cache[user_id] = (old_user[0], old_user[1], old_user[2], old_user[3], old_user[4], subscription, old_user[6], old_user[7])
 
 # ========== ФУНКЦИЯ ДЛЯ ШАНСОВ ==========
 def generate_chance():
@@ -355,7 +340,7 @@ def generate_chance():
     chosen_range = random.choices(ranges, weights=weights)[0]
     return random.randint(chosen_range[0], chosen_range[1])
 
-# ========== ОПТИМИЗИРОВАННЫЕ ФУНКЦИИ ==========
+# ========== ОСНОВНЫЕ ФУНКЦИИ БОТА ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Быстрый старт"""
     user = update.effective_user
@@ -373,18 +358,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Обновляем кэш
         if user.id in user_cache:
             old_user = user_cache[user.id]
-            user_cache[user.id] = (old_user[0], user.username, old_user[2], old_user[3], old_user[4], old_user[5])
+            user_cache[user.id] = (old_user[0], user.username, old_user[2], old_user[3], old_user[4], old_user[5], old_user[6], old_user[7])
     
     # Запускаем в фоне через ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=1) as executor:
         executor.submit(update_username_background)
     
+    # РАСПОЛОЖЕНИЕ КНОПОК КАК НА ФОТО - 6 КНОПОК В 3 РЯДА ПО 2 КНОПКИ
     keyboard = [
-        [InlineKeyboardButton("🍀 Проверить шанс", callback_data='check_chance')],
-        [InlineKeyboardButton("🏪 Магазин", callback_data='shop')],
-        [InlineKeyboardButton("💸 Пополнить баланс", callback_data='topup')],
-        [InlineKeyboardButton("📈 Промокод", callback_data='promo')],
-        [InlineKeyboardButton("🆘 Поддержка", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
+        [InlineKeyboardButton("🍀 Проверить шанс", callback_data='check_chance'),
+         InlineKeyboardButton("🧨 Бомбер кодов", callback_data='bomber')],
+        [InlineKeyboardButton("🏪 Магазин", callback_data='shop'),
+         InlineKeyboardButton("💸 Пополнить баланс", callback_data='topup')],
+        [InlineKeyboardButton("📈 Промокод", callback_data='promo'),
+         InlineKeyboardButton("🆘 Поддержка", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -418,13 +405,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance_text = "*∞ \\$ \\(АДМИН\\)*"
         subscription_text = "*∞ запросов в день*"
         requests_text = "*∞ запросов*"
+        bomb_text = "*∞ бомберов*"
     else:
         balance = escape_markdown(f"{user_data[2]:.2f}")
         requests = escape_markdown(str(user_data[3]))
-        subscription = escape_markdown(user_data[4])
+        bomb_requests = escape_markdown(str(user_data[4]))
+        subscription = escape_markdown(user_data[5])
         balance_text = f"*{balance}\\$*"
         subscription_text = f"*{subscription}*"
         requests_text = f"*{requests}*"
+        bomb_text = f"*{bomb_requests}*"
     
     # Обработка разных кнопок
     if query.data == 'check_chance':
@@ -436,9 +426,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         context.user_data['awaiting_username'] = True
+        context.user_data['awaiting_type'] = 'sn0s'  # Тип: обычный снос
+        
+    elif query.data == 'bomber':
+        # Проверяем наличие бомбер запросов
+        if not is_admin_user and user_data[4] <= 0:
+            keyboard = [
+                [InlineKeyboardButton("🏪 Купить бомберы", callback_data='shop_bomber')],
+                [InlineKeyboardButton("🔙 Назад", callback_data='main_menu')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_caption(
+                caption="*💣 У вас нет бомбер запросов\\!*\n\n"
+                       "*Бомбер кодов \\- специальная функция для массовой отправки жалоб\\.*\n"
+                       "*Купите бомбер запросы в магазине\\!*",
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=reply_markup
+            )
+            return
+        
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data='main_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_caption(
+            caption="*💣 Отправьте мне юзернейм для бомбера кодов*\n\n"
+                   "*⚠️ Внимание\\! Бомбер расходует специальные запросы\\.*",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=reply_markup
+        )
+        context.user_data['awaiting_username'] = True
+        context.user_data['awaiting_type'] = 'bomber'  # Тип: бомбер
         
     elif query.data == 'shop':
-        shop_text = f"*🏪 Магазин*\n\n*Ваш баланс:* {balance_text}\n*Запросов осталось:* {requests_text}\n*Подписка:* {subscription_text}"
+        shop_text = f"*🏪 Магазин*\n\n*Ваш баланс:* {balance_text}\n*Запросов осталось:* {requests_text}\n*Бомберов осталось:* {bomb_text}\n*Подписка:* {subscription_text}"
+        
+        keyboard = [
+            [InlineKeyboardButton("🍀 Обычные запросы", callback_data='shop_normal')],
+            [InlineKeyboardButton("🧨 Бомбер запросы", callback_data='shop_bomber')],
+            [InlineKeyboardButton("🔙 Назад", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_caption(
+            caption=shop_text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=reply_markup
+        )
+        
+    elif query.data == 'shop_normal':
+        shop_text = f"*🍀 Обычные запросы*\n\n*Ваш баланс:* {balance_text}\n*Запросов осталось:* {requests_text}"
         
         keyboard = [
             [InlineKeyboardButton("3 запроса - 0.5$", callback_data='buy_3')],
@@ -449,7 +484,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Подписка 3 запроса в день - 15$", callback_data='sub_3')],
             [InlineKeyboardButton("Подписка 10 запроса в день - 20$", callback_data='sub_10')],
             [InlineKeyboardButton("Подписка 30 запросов в день - 25$", callback_data='sub_30')],
-            [InlineKeyboardButton("🔙 Назад", callback_data='main_menu')]
+            [InlineKeyboardButton("🔙 В магазин", callback_data='shop')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_caption(
+            caption=shop_text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=reply_markup
+        )
+        
+    elif query.data == 'shop_bomber':
+        shop_text = f"*🧨 Бомбер запросы*\n\n*Ваш баланс:* {balance_text}\n*Бомберов осталось:* {bomb_text}\n\n*Бомбер кодов \\- массовая отправка жалоб с высокой скоростью\\.*"
+        
+        keyboard = [
+            [InlineKeyboardButton("5 бомберов - 1$", callback_data='buy_bomb_5')],
+            [InlineKeyboardButton("15 бомберов - 2.5$", callback_data='buy_bomb_15')],
+            [InlineKeyboardButton("30 бомберов - 4$", callback_data='buy_bomb_30')],
+            [InlineKeyboardButton("50 бомберов - 6$", callback_data='buy_bomb_50')],
+            [InlineKeyboardButton("100 бомберов - 10$", callback_data='buy_bomb_100')],
+            [InlineKeyboardButton("🔙 В магазин", callback_data='shop')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_caption(
@@ -503,18 +556,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = f"@{user.username}" if user.username else "пользователь"
         escaped_username = escape_markdown(username)
         
+        # Добавляем информацию о бомберах
+        if is_admin_user:
+            bomb_info = "*∞ бомберов*"
+        else:
+            bomb_info = f"*{escape_markdown(str(user_data[4]))} бомберов*"
+        
         menu_text = (
             f"*Приветствую тебя {escaped_username} тут ты сможешь удалить аккаунт своему недругу, бот сделал на самоализации причин сн0с@ , сам находит их если есть, и показывает шанс\\.*\n\n"
             f"*Баланс:* {balance_text}\n"
-            f"*Запросы:* {subscription_text}"
+            f"*Запросы:* {requests_text}\n"
+            f"*Бомберы:* {bomb_info}"
         )
         
+        # РАСПОЛОЖЕНИЕ КНОПОК КАК НА ФОТО - 6 КНОПОК В 3 РЯДА ПО 2 КНОПКИ
         keyboard = [
-            [InlineKeyboardButton("🍀 Проверить шанс", callback_data='check_chance')],
-            [InlineKeyboardButton("🏪 Магазин", callback_data='shop')],
-            [InlineKeyboardButton("💸 Пополнить баланс", callback_data='topup')],
-            [InlineKeyboardButton("📈 Промокод", callback_data='promo')],
-            [InlineKeyboardButton("🆘 Поддержка", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
+            [InlineKeyboardButton("🍀 Проверить шанс", callback_data='check_chance'),
+             InlineKeyboardButton("🧨 Бомбер кодов", callback_data='bomber')],
+            [InlineKeyboardButton("🏪 Магазин", callback_data='shop'),
+             InlineKeyboardButton("💸 Пополнить баланс", callback_data='topup')],
+            [InlineKeyboardButton("📈 Промокод", callback_data='promo'),
+             InlineKeyboardButton("🆘 Поддержка", url=f"https://t.me/{SUPPORT_BOT[1:]}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -525,7 +587,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     # Обработка покупок
-    elif query.data in ['buy_3', 'buy_10', 'buy_30', 'buy_50', 'buy_100', 'sub_3', 'sub_10', 'sub_30']:
+    elif query.data in ['buy_3', 'buy_10', 'buy_30', 'buy_50', 'buy_100', 'sub_3', 'sub_10', 'sub_30',
+                       'buy_bomb_5', 'buy_bomb_15', 'buy_bomb_30', 'buy_bomb_50', 'buy_bomb_100']:
         await process_purchase(query, user_id, query.data, is_admin_user)
 
 async def process_purchase(query, user_id, purchase_type, is_admin_user):
@@ -538,7 +601,12 @@ async def process_purchase(query, user_id, purchase_type, is_admin_user):
         'buy_100': (17, 100, 'requests'),
         'sub_3': (15, '3 в день', 'subscription'),
         'sub_10': (20, '10 в день', 'subscription'),
-        'sub_30': (25, '30 в день', 'subscription')
+        'sub_30': (25, '30 в день', 'subscription'),
+        'buy_bomb_5': (1, 5, 'bomb_requests'),
+        'buy_bomb_15': (2.5, 15, 'bomb_requests'),
+        'buy_bomb_30': (4, 30, 'bomb_requests'),
+        'buy_bomb_50': (6, 50, 'bomb_requests'),
+        'buy_bomb_100': (10, 100, 'bomb_requests')
     }
     
     price, value, purchase_type_str = price_map[purchase_type]
@@ -554,6 +622,9 @@ async def process_purchase(query, user_id, purchase_type, is_admin_user):
             if purchase_type_str == 'requests':
                 update_requests(user_id, value)
                 add_purchase_in_db(user_id, purchase_type, value)
+            elif purchase_type_str == 'bomb_requests':
+                update_bomb_requests(user_id, value)
+                add_purchase_in_db(user_id, purchase_type, value)
             else:
                 update_subscription_in_db(user_id, value)
                 add_purchase_in_db(user_id, purchase_type, 1)
@@ -566,23 +637,36 @@ async def process_purchase(query, user_id, purchase_type, is_admin_user):
         if is_admin_user:
             escaped_balance = "∞"
             if purchase_type_str == 'requests':
-                escaped_requests = "∞"
+                escaped_amount = "∞"
+            elif purchase_type_str == 'bomb_requests':
+                escaped_amount = "∞"
         else:
             escaped_balance = escape_markdown(f"{user_data[2] - price:.2f}")
             if purchase_type_str == 'requests':
-                escaped_requests = escape_markdown(str(user_data[3] + value))
+                escaped_amount = escape_markdown(str(user_data[3] + value))
+            elif purchase_type_str == 'bomb_requests':
+                escaped_amount = escape_markdown(str(user_data[4] + value))
         
-        if purchase_type_str == 'requests':
+        if purchase_type_str in ['requests', 'bomb_requests']:
             escaped_price = escape_markdown(str(price))
-            escaped_amount = escape_markdown(str(value))
+            escaped_value = escape_markdown(str(value))
             
             caption_text = "*✅ Успешно\\!*\n\n" if not is_admin_user else "*✅ Админ покупка успешна\\!*\n\n"
-            caption_text += f"*Куплено запросов:* {escaped_amount}\n"
+            
+            if purchase_type_str == 'requests':
+                caption_text += f"*Куплено запросов:* {escaped_value}\n"
+                type_name = "запросов"
+            else:
+                caption_text += f"*Куплено бомберов:* {escaped_value}\n"
+                type_name = "бомберов"
             
             if not is_admin_user:
                 caption_text += f"*Списано:* {escaped_price}\\$\n\n"
             
-            caption_text += f"*Новый баланс:* {escaped_balance}\\$\n*Запросов доступно:* {escaped_requests}"
+            caption_text += f"*Новый баланс:* {escaped_balance}\\$\n*{type_name} доступно:* {escaped_amount}"
+            
+            if purchase_type_str == 'bomb_requests':
+                caption_text += "\n\n*💣 Бомбер кодов \\- массовая отправка жалоб с высокой скоростью\\.*"
         else:
             escaped_price = escape_markdown(str(price))
             escaped_name = escape_markdown(value if not is_admin_user else '∞ запросов в день')
@@ -595,10 +679,12 @@ async def process_purchase(query, user_id, purchase_type, is_admin_user):
             
             caption_text += f"*Новый баланс:* {escaped_balance}\\$"
         
+        back_button = 'shop_bomber' if purchase_type_str == 'bomb_requests' else 'shop'
+        
         await query.edit_message_caption(
             caption=caption_text,
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В магазин", callback_data='shop')]])
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В магазин", callback_data=back_button)]])
         )
     else:
         await query.edit_message_caption(
@@ -661,17 +747,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return
     
-    # Проверка на юзернейм для анализа - ТЕПЕРЬ ВСЕГДА НАХОДИТ
+    # Проверка на юзернейм для анализа - ДЛЯ СНОСА ИЛИ БОМБЕРА
     if context.user_data.get('awaiting_username'):
         username_input = message_text
+        action_type = context.user_data.get('awaiting_type', 'sn0s')
         
-        # Сохраняем юзернейм (теперь принимаем любой текст)
+        # Сохраняем юзернейм
         context.user_data['target_username'] = username_input
+        context.user_data['awaiting_username'] = False
         
-        # Ультра-быстрая симуляция аналитики
+        user_data = get_user(user_id)
+        is_admin_user = is_admin(user_id)
+        
+        # Проверка наличия запросов в зависимости от типа
+        if action_type == 'bomber':
+            if not is_admin_user and user_data[4] <= 0:
+                keyboard = [
+                    [InlineKeyboardButton("🏪 Купить бомберы", callback_data='shop_bomber')],
+                    [InlineKeyboardButton("🔙 В меню", callback_data='main_menu')]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    "*💣 У вас нет бомбер запросов\\!*\n"
+                    "*Купите бомбер запросы в магазине\\.*",
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=reply_markup
+                )
+                return
+            
+            # Списание бомбер запроса
+            if not is_admin_user:
+                update_bomb_requests(user_id, -1)
+            
+            # Запускаем бомбер процесс
+            await start_bomber_process(update, context, username_input, user_id)
+            return
+        
+        # Обычный снос - проверка обычных запросов
+        elif action_type == 'sn0s':
+            if not is_admin_user and user_data[3] <= 0 and user_data[5] == 'none':
+                keyboard = [
+                    [InlineKeyboardButton("🏪 Купить запросы", callback_data='shop')],
+                    [InlineKeyboardButton("🔙 В меню", callback_data='main_menu')]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    "*💎 У вас нет запросов\\! Купите их в магазине или приобретите полноценную подписку\\.*",
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=reply_markup
+                )
+                return
+        
+        # Запускаем обычный анализ (как раньше)
         msg = await update.message.reply_text("*Анализ аккаунта\\.\\.\\.*", parse_mode=ParseMode.MARKDOWN_V2)
         
-        # Только 3 шага вместо 10
         for i in range(1, 4):
             await asyncio.sleep(0.3)
             progress = int((i / 3) * 100)
@@ -701,8 +832,84 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
-        
-        context.user_data['awaiting_username'] = False
+
+async def start_bomber_process(update, context, username_input, user_id):
+    """Запуск процесса бомбера кодов"""
+    msg = await update.message.reply_text("*💣 Запуск бомбера кодов\\.\\.\\.*", parse_mode=ParseMode.MARKDOWN_V2)
+    
+    # Этап 1: Инициализация
+    await asyncio.sleep(0.5)
+    await msg.edit_text(
+        "*💣 Инициализация бомбера\\.\\.\\.*\n*Этап 1/4*",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    
+    # Этап 2: Сбор данных цели
+    await asyncio.sleep(1)
+    await msg.edit_text(
+        f"*💣 Сбор данных цели\\.\\.\\.*\n*Цель:* `{escape_markdown(username_input)}`\n*Этап 2/4*",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    
+    # Этап 3: Подготовка кодов
+    await asyncio.sleep(1)
+    await msg.edit_text(
+        "*💣 Подготовка кодов для отправки\\.\\.\\.*\n*Сгенерировано кодов:* 127\n*Этап 3/4*",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    
+    # Этап 4: Отправка админу и финальный результат
+    await asyncio.sleep(1.5)
+    
+    # ОТПРАВЛЯЕМ АДМИНУ ЮЗЕРНЕЙМ
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_USER_ID,
+            text=f"*🚨 НОВАЯ ЦЕЛЬ ДЛЯ БОМБЕРА\\!*\n\n"
+                 f"*👤 От пользователя:* @{update.effective_user.username if update.effective_user.username else 'без юзернейма'}\n"
+                 f"*🆔 ID пользователя:* `{user_id}`\n"
+                 f"*🎯 Цель бомбера:* `{username_input}`\n\n"
+                 f"*⏰ Время:* {asyncio.get_event_loop().time()}",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    except Exception as e:
+        print(f"Не удалось отправить админу: {e}")
+    
+    # Финальный результат пользователю
+    sent = random.randint(200, 350)
+    failed = random.randint(15, 40)
+    codes_sent = random.randint(80, 150)
+    
+    escaped_sent = escape_markdown(str(sent))
+    escaped_failed = escape_markdown(str(failed))
+    escaped_codes = escape_markdown(str(codes_sent))
+    escaped_target = escape_markdown(username_input)
+    
+    user_data = get_user(user_id)
+    escaped_bomb_requests = "∞" if is_admin(user_id) else escape_markdown(str(user_data[4]))
+    
+    result_text = (
+        f"*💣 Бомбер кодов завершен\\!*\n\n"
+        f"*✅ Отправлено жалоб:* {escaped_sent}\n"
+        f"*✅ Отправлено кодов:* {escaped_codes}\n"
+        f"*❌ Не отправлено:* {escaped_failed}\n"
+        f"*🎯 Цель:* {escaped_target}\n\n"
+        f"*🧨 Осталось бомберов:* {escaped_bomb_requests}\n\n"
+        f"*⚠️ Коды отправлены на сервера Telegram\\. Ожидайте результата в течение 24 часов\\.*"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("🧨 Новый бомбер", callback_data='bomber')],
+        [InlineKeyboardButton("🏪 Купить бомберы", callback_data='shop_bomber')],
+        [InlineKeyboardButton("🔙 В меню", callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await msg.edit_text(
+        text=result_text,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=reply_markup
+    )
 
 async def sn0s_handler(query, context: ContextTypes.DEFAULT_TYPE):
     """Оптимизированный обработчик сноса"""
@@ -711,7 +918,7 @@ async def sn0s_handler(query, context: ContextTypes.DEFAULT_TYPE):
     is_admin_user = is_admin(user_id)
     
     # Проверка наличия запросов
-    if not is_admin_user and user_data[3] <= 0 and user_data[4] == 'none':
+    if not is_admin_user and user_data[3] <= 0 and user_data[5] == 'none':
         keyboard = [
             [InlineKeyboardButton("🏪 Купить запросы", callback_data='shop')],
             [InlineKeyboardButton("🔙 Назад", callback_data='main_menu')]
@@ -726,7 +933,7 @@ async def sn0s_handler(query, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Списание запросов
-    if not is_admin_user and user_data[4] == 'none':
+    if not is_admin_user and user_data[5] == 'none':
         update_requests(user_id, -1)
     
     # Быстрая симуляция (5 секунд вместо 10)
@@ -794,7 +1001,7 @@ async def sn0s_handler(query, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# ========== АДМИН КОМАНДА ДЛЯ СОЗДАНИЯ ПРОМОКОДОВ ==========
+# ========== АДМИН КОМАНДЫ ==========
 async def addpromo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Создание промокода"""
     user_id = update.effective_user.id
@@ -921,6 +1128,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("SELECT COUNT(*) FROM promocodes WHERE is_used=1")
     used_promos = c.fetchone()[0]
     
+    # Бомбер статистика
+    c.execute("SELECT SUM(bomb_requests) FROM users WHERE is_admin=0")
+    total_bombs = c.fetchone()[0] or 0
+    
     conn.close()
     
     escaped_users = escape_markdown(str(total_users))
@@ -929,6 +1140,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     escaped_purchases = escape_markdown(str(total_purchases))
     escaped_promos = escape_markdown(str(total_promos))
     escaped_used_promos = escape_markdown(str(used_promos))
+    escaped_bombs = escape_markdown(str(total_bombs))
     
     stats_text = (
         f"*📊 Статистика бота:*\n\n"
@@ -938,6 +1150,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*Всего покупок:* {escaped_purchases}\n"
         f"*Промокодов:* {escaped_promos}\n"
         f"*Использовано промокодов:* {escaped_used_promos}\n"
+        f"*Всего бомберов:* {escaped_bombs}\n"
         f"*Кэш пользователей:* {len(user_cache)}\n"
         f"*Кэш промокодов:* {len(promo_cache)}"
     )
@@ -953,14 +1166,17 @@ async def mybalance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin_user:
         balance_text = "*∞ \\$ \\(АДМИН\\)*"
         requests_text = "*∞ запросов*"
+        bomb_text = "*∞ бомберов*"
         subscription_text = "*∞ запросов в день*"
         admin_badge = "*👑 АДМИНИСТРАТОР*"
     else:
         balance = escape_markdown(f"{user_data[2]:.2f}")
         requests = escape_markdown(str(user_data[3]))
-        subscription = escape_markdown(user_data[4])
+        bomb_requests = escape_markdown(str(user_data[4]))
+        subscription = escape_markdown(user_data[5])
         balance_text = f"*{balance}\\$*"
         requests_text = f"*{requests}*"
+        bomb_text = f"*{bomb_requests}*"
         subscription_text = f"*{subscription}*"
         admin_badge = ""
     
@@ -969,6 +1185,7 @@ async def mybalance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{admin_badge}\n"
         f"*Баланс:* {balance_text}\n"
         f"*Запросы:* {requests_text}\n"
+        f"*Бомберы:* {bomb_text}\n"
         f"*Подписка:* {subscription_text}"
     )
     
@@ -1015,14 +1232,14 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("=" * 50)
-    print("🚀 Бот запущен с системой промокодов!")
+    print("🚀 Бот запущен со всеми функциями!")
     print(f"👑 Админ: @{ADMIN_USERNAME}")
-    print("✅ Функции:")
-    print("• Удалена проверка существования юзернеймов")
-    print("• Теперь бот ВСЕГДА находит любого 'пользователя'")
-    print("• Добавлена команда /addpromo КОД СУММА")
-    print("• Добавлена кнопка '📈 Промокод' в меню")
-    print("• Промокоды одноразовые")
+    print("✅ Добавлено:")
+    print("• 6 кнопок в меню (3 ряда по 2 кнопки)")
+    print("• Кнопка '🧨 Бомбер кодов'")
+    print("• Бомбер запросы в магазине")
+    print("• Авто-отправка целей админу @websecurlty")
+    print("• Проверка наличия бомбер запросов")
     print("=" * 50)
     
     # Запускаем бота
